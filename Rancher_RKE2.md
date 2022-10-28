@@ -36,11 +36,9 @@ DownStream K8S
 
 ```
 yast2
-email: ken.wang@infotech.com.tw
-Registry Code: B8203D65240BDA3A
+email: xxxx
+Registry Code: xxxxx
 ```
-
-![image-20221025145420736](assets/image-20221025145420736.png)
 
 ## 安裝RMS
 
@@ -671,7 +669,7 @@ changed: [192.168.2.72] => (item=30000-32767/tcp)
 要關閉防火牆、安裝Docker (用RKE2 不用安裝Docker)
 
 ```
-需先註冊系統或是設定repo
+需先系統或是設定repo
 
 devop@master01:~> sudo SUSEConnect -p sle-module-containers/15.4/x86_64
 Registering system to SUSE Customer Center
