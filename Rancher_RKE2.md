@@ -423,13 +423,14 @@ https://documentation.suse.com/sles/15-SP1/html/SLES-all/cha-nfs.html
    Created symlink /etc/systemd/system/multi-user.target.wants/rke2-server.service → /etc/systemd/system/rke2-server.service.
    ```
 
-   1. 調整kubectl 指令及kubeconfig >> 可把 kubectl、rke2.yaml  scp到 rms
+   1. 調整kubectl 、rke2 指令及kubeconfig >> 可把 rke2、kubectl、rke2.yaml  scp到 rms
 
    ```
    devop@rke2-1:~> mkdir .kube
    devop@rke2-1:~> sudo cp /etc/rancher/rke2/rke2.yaml .kube/config
    devop@rke2-1:~> sudo chown devop .kube/config 
    devop@rke2-1:~> sudo cp /var/lib/rancher/rke2/bin/kubectl /usr/local/bin/
+   devop@rke2-1:~> cp /opt/rke2/bin/rke2 /usr/local/bin/
    ----
    devop@rke2-1:~> sudo scp /etc/rancher/rke2/rke2.yaml devop@192.168.33.40:/home/devop/.kube/config
    The authenticity of host '192.168.33.40 (192.168.33.40)' can't be established.
@@ -1223,11 +1224,11 @@ https://www.twblogs.net/a/6225a6dfc1f9c8b6ea0c84d2
 
 7. 123
 
-# 升級Rancher Cluster
+# Rancher Cluster (備份.還原.升級)
 
 https://docs.ranchermanager.rancher.io/getting-started/installation-and-upgrade/install-upgrade-on-a-kubernetes-cluster/upgrades
 
-## 安裝Rancher Backup
+## Rancher Backup (備份還原APP)
 
 1. 在Apps --> Charts 搜尋rancher backups
    ![image-20221108153112348](assets/image-20221108153112348.png)
@@ -1255,17 +1256,201 @@ https://docs.ranchermanager.rancher.io/getting-started/installation-and-upgrade/
 8. 確認備份完成
    ![image-20221108153642511](assets/image-20221108153642511.png)
 
-9. 123
+9. 測試先將monitoring刪除後備份 （手動刪除cattle-monitoring-system、相關CRD）
 
-10. 123
+   ```
+   devop@rms:~> kubectl delete ns cattle-monitoring-system
+   --- 卡在terminating 可執行下方操作
+   
+   devop@rms:~> kubectl get ns cattle-monitoring-system -o json > tmp.json
+   devop@rms:~> vim tmp.json
+   --- 刪除        "finalizers": [
+               "kubernetes"
+           ]
+   devop@rms:~> kubectl proxy
+   
+   --- 開另一個terminal
+   devop@rms:~> curl -k -H "Content-Type: application/json" -X PUT --data-binary @tmp.json http://127.0.0.1:8001/api/v1/namespaces/cattle-monitoring-system/finalize
+   
+   --- 確認cattle-monitoring-system 刪除
+   devop@rms:~> kubectl get ns cattle-monitoring-system
+   Error from server (NotFound): namespaces "cattle-monitoring-system" not found
+   
+   --- 刪除相關CRD
+   devop@rms:~> kubectl delete crd prometheusrules.monitoring.coreos.com 
+   customresourcedefinition.apiextensions.k8s.io "prometheusrules.monitoring.coreos.com" deleted
+   devop@rms:~> kubectl delete crd prometheuses.monitoring.coreos.com
+   customresourcedefinition.apiextensions.k8s.io "prometheuses.monitoring.coreos.com" deleted
+   devop@rms:~> kubectl delete crd alertmanagerconfigs.monitoring.coreos.com 
+   customresourcedefinition.apiextensions.k8s.io "alertmanagerconfigs.monitoring.coreos.com" deleted
+   devop@rms:~> kubectl delete crd alertmanagers.monitoring.coreos.com
+   customresourcedefinition.apiextensions.k8s.io "alertmanagers.monitoring.coreos.com" deleted
+   devop@rms:~> kubectl delete crd podmonitors.monitoring.coreos.com 
+   customresourcedefinition.apiextensions.k8s.io "podmonitors.monitoring.coreos.com" deleted
+   devop@rms:~> kubectl delete crd probes.monitoring.coreos.com 
+   customresourcedefinition.apiextensions.k8s.io "probes.monitoring.coreos.com" deleted
+   devop@rms:~> kubectl delete crd servicemonitors.monitoring.coreos.com  
+   customresourcedefinition.apiextensions.k8s.io "servicemonitors.monitoring.coreos.com" deleted
+   devop@rms:~> kubectl delete crd thanosrulers.monitoring.coreos.com 
+   customresourcedefinition.apiextensions.k8s.io "thanosrulers.monitoring.coreos.com" deleted
+   ```
 
-11. 123
+   ![image-20221109100436616](assets/image-20221109100436616.png)
 
-12. 123
+   
 
-13. 123
+   ![image-20221109100244363](assets/image-20221109100244363.png)
 
+10. 確認備份完成後將Monitoring安裝回去
+    ![image-20221109100334288](assets/image-20221109100334288.png)
+    ![image-20221109100558546](assets/image-20221109100558546.png)
 
+11. 確認安裝完成
+    ![image-20221109100809009](assets/image-20221109100809009.png)
+
+12. 確認備份檔案
+
+    ![image-20221109102519201](assets/image-20221109102519201.png)
+
+13. 還原備份檔案-->點選restore -->Create 即會開始執行restore
+
+    ```
+    Result: The backup file is created and updated to the target storage location. The resources are restored in this order:
+    
+       1. Custom Resource Definitions (CRDs)
+       2. Cluster-scoped resources
+       3. Namespaced resources
+    ```
+
+    ![image-20221109102614271](assets/image-20221109102614271.png)
+
+14. 確認 status，Rancher Cluster服務會中斷 (約3分鐘)
+
+    ```
+    devop@rms:~> kubectl get po -n cattle-system
+    NAME                             READY   STATUS        RESTARTS   AGE
+    rancher-6c8f689f57-bgj4j         0/1     Terminating   0          30s
+    rancher-6c8f689f57-jkmpq         0/1     Terminating   0          30s
+    rancher-6c8f689f57-tj8tw         0/1     Terminating   0          30s
+    rancher-webhook-d6f8b6cb-xzjxc   1/1     Running       0          18h
+    
+    devop@rms:~> kubectl logs rancher-backup-6b9fc54cc6-nzt6m -n cattle-resources-system
+    INFO[2022/11/09 02:32:31] Marking resource rolebindings.rbac.authorization.k8s.io#v1/fleet-local/request-6hktw for deletion 
+    INFO[2022/11/09 02:32:31] Marking resource rolebindings.rbac.authorization.k8s.io#v1/fleet-local/request-d9wpm for deletion 
+    INFO[2022/11/09 02:32:31] Marking resource rolebindings.rbac.authorization.k8s.io#v1/fleet-local/request-hskp9 for deletion 
+    INFO[2022/11/09 02:32:31] Will retry pruning resources by removing finalizers in 10s 
+    INFO[2022/11/09 02:32:41] Retrying pruning resources by removing finalizers 
+    INFO[2022/11/09 02:32:41] Processing controllerRef apps/v1/deployments/rancher 
+    INFO[2022/11/09 02:32:41] Scaling up controllerRef apps/v1/deployments/rancher to 3 
+    INFO[2022/11/09 02:32:41] Done restoring 
+    ```
+
+15. 確認Rancher 服務啟動
+    cattle-monitoring-system -- terminating 、相關crd還存在需手動刪除
+
+    (若為自定義的Application應會全部清空，此處使用helm chart安裝的有留存著)
+
+    ```
+    devop@rms:~> kubectl get po -n cattle-system
+    NAME                             READY   STATUS    RESTARTS   AGE
+    rancher-6c8f689f57-8cn46         1/1     Running   0          71s
+    rancher-6c8f689f57-kcqxc         1/1     Running   0          71s
+    rancher-6c8f689f57-w5hsz         1/1     Running   0          71s
+    rancher-webhook-d6f8b6cb-xzjxc   1/1     Running   0          18h
+    devop@rms:~> kubectl get ns
+    NAME                                         STATUS        AGE
+    cattle-monitoring-system                     Terminating   9m11s
+    devop@rms:~> kubectl get crd
+    devop@rms:~> kubectl delete crd probes.monitoring.coreos.com 
+    ...
+    ```
+
+    ![image-20221109103725106](assets/image-20221109103725106.png)
+
+    
+
+## 備份Rancher Cluster etcd
+
+https://docs.rke2.io/backup_restore/
+
+1. ansible設定
+
+   ```
+   wangken@wangken-MAC rke2-lab % cat ansible.cfg 
+   [defaults]
+   inventory = /Users/wangken/ansible/infoserver/rke2-lab/inventory
+   remote_user = devop
+   sudo_user = root
+   host_key_checking = False
+   
+   [privilege_escalation]
+   become = true
+   become_user = root
+   become_ask_pass = true
+   --
+   wangken@wangken-MAC rke2-lab % cat inventory 
+   [rke2-cluster]
+   192.168.33.[41:43] ansible_ssh_pass=suse
+   
+   [downstreamk8s-master]
+   192.168.33.[44:46] ansible_ssh_pass=suse
+   
+   [downstreamk8s-worker]
+   192.168.33.[47:48] ansible_ssh_pass=suse
+   
+   [downstreamk8s:children]
+   downstreamk8s-master
+   downstreamk8s-worker
+   wangken@wangken-MAC rke2-lab % ansible rke2-cluster -m ping
+   ```
+
+2. 確認各nodes皆有rke2指令 /opt/rke2/bin/rke2
+
+   ```
+   wangken@wangken-MAC rke2-lab % ansible rke2-cluster -m shell -a 'rke2 --help'
+   BECOME password: 
+   192.168.33.41 | FAILED | rc=127 >>
+   /bin/sh: rke2：命令找不到non-zero return code
+   192.168.33.42 | FAILED | rc=127 >>
+   /bin/sh: rke2：命令找不到non-zero return code
+   192.168.33.43 | FAILED | rc=127 >>
+   /bin/sh: rke2：命令找不到non-zero return code
+   
+   --- copy rke2 到/usr/local/bin
+   wangken@wangken-MAC rke2-lab % ansible rke2-cluster -m shell -a 'cp /opt/rke2/bin/rke2 /usr/local/bin/'
+   BECOME password: 
+   
+   ---
+   wangken@wangken-MAC rke2-lab % ansible rke2-cluster -m shell -a 'rke2 --help'
+   BECOME password: 
+   192.168.33.41 | CHANGED | rc=0 >>
+   192.168.33.42 | CHANGED | rc=0 >>
+   192.168.33.43 | CHANGED | rc=0 >>
+   ```
+
+3. backup etcd while running
+
+   ```
+   Snapshots are enabled by default.
+   
+   The snapshot directory defaults to /var/lib/rancher/rke2/server/db/snapshots
+   
+   wangken@wangken-MAC rke2-lab % ansible rke2-cluster -m shell -a 'rke2 etcd-snapshot save --name pre-upgrade-snapshot-v2.6.6'
+   BECOME password: 
+   192.168.33.41 | CHANGED | rc=0 >>
+   192.168.33.42 | CHANGED | rc=0 >>
+   192.168.33.43 | CHANGED | rc=0 >>
+   wangken@wangken-MAC rke2-lab % ansible rke2-cluster -m shell -a 'ls -l /var/lib/rancher/rke2/server/db/snapshots'           
+   BECOME password: 
+   ```
+
+   ![image-20221109115637681](assets/image-20221109115637681.png)
+   ![image-20221109115733969](assets/image-20221109115733969.png)
+
+4. 利用下篇方法升級rancher cluster的version
+   v2.6.6 to v2.6.9
+
+5. 升級rancher cluster的k8s version
 
 ## 升級Rancher Cluster
 
@@ -1431,50 +1616,305 @@ https://docs.ranchermanager.rancher.io/getting-started/installation-and-upgrade/
    rancher-6c8f689f57-g666k         1/1     Running     0          16m
    rancher-6c8f689f57-nkfkb         1/1     Running     0          15m
    rancher-webhook-d6f8b6cb-xzjxc   1/1     Running     0          13m
+   
+   devop@rms:~> helm  history rancher -n cattle-system
+   REVISION	UPDATED                 	STATUS    	CHART        	APP VERSION	DESCRIPTION     
+   1       	Tue Oct 25 17:05:13 2022	superseded	rancher-2.6.6	v2.6.6     	Install complete
+   2       	Tue Nov  8 15:52:00 2022	superseded	rancher-2.6.9	v2.6.9     	Upgrade complete
+   3       	Wed Nov  9 10:55:25 2022	superseded	rancher-2.6.6	v2.6.6     	Rollback to 1   
+   4       	Wed Nov  9 12:04:06 2022	deployed  	rancher-2.6.9	v2.6.9     	Upgrade complete
    ```
 
 8. 從Web UI確認版本 v2.6.9
    ![image-20221108160654097](assets/image-20221108160654097.png)
 
-9. 123
+9. 升級k8s version，針對升級後的Rancher Cluster點選edit config
 
-10. 123
+   v1.23.9 to v1.24.4
+   ![image-20221109121235714](assets/image-20221109121235714.png)
 
-## Rolling Backup Rancher
+10. 點選save，查看升級狀態  rolling upgrade ，期間Web UI不受影響
 
-1. 確認先前backup的檔案
-   ![image-20221108162822587](assets/image-20221108162822587.png)
+   ![image-20221109121345121](assets/image-20221109121345121.png)
+   ![image-20221109121459412](assets/image-20221109121459412.png)
 
-2. 點選Restore --> Create，選擇備份檔案
-   Prune選項：現行的resource若不在備份檔案的話會刪除。
+11. nodes輪流升級 (RAM的使用率會飆高)
+    ![image-20221109121632971](assets/image-20221109121632971.png)
 
-   ![image-20221108162904330](assets/image-20221108162904330.png)
+12. 升級完成
+    ![image-20221109134021037](assets/image-20221109134021037.png)
 
-3. 點選Create即會開始執行restore
-   ![image-20221108163112147](assets/image-20221108163112147.png)
+    
 
-4. 確認cattle-system status，Rancher Cluster服務會中斷 (約3分鐘)
+## Roll Backup Rancher (Helm)
+
+https://docs.ranchermanager.rancher.io/getting-started/installation-and-upgrade/install-upgrade-on-a-kubernetes-cluster/rollbacks
+
+**雖官方文件有寫到，但原廠不建議這麼做** ，只針對rancher 版本回復
+
+1. 查看rancher安裝過的版本
 
    ```
+   devop@rms:~> helm history rancher -n cattle-system
+   REVISION	UPDATED                 	STATUS    	CHART        	APP VERSION	DESCRIPTION     
+   1       	Tue Oct 25 17:05:13 2022	superseded	rancher-2.6.6	v2.6.6     	Install complete
+   2       	Tue Nov  8 15:52:00 2022	deployed  	rancher-2.6.9	v2.6.9     	Upgrade complete
+   ```
+
+2. 利用helm 還原rancher版本
+
+   ```
+   devop@rms:~> helm rollback rancher 1 -n cattle-system
+   Rollback was a success! Happy Helming!
+   ```
+
+3. 確認status
+
+   ```
+   devop@rms:~> watch kubectl get po -n cattle-system
+   NAME                             READY   STATUS              RESTARTS   AGE
+   rancher-6c8f689f57-kcqxc         1/1     Running             0          23m
+   rancher-6c8f689f57-w5hsz         1/1     Running             0          23m
+   rancher-7fd65d9cd6-hsbhg         0/1     ContainerCreating   0          24s
+   rancher-7fd65d9cd6-zrdm8         0/1     Running             0          24s
+   rancher-webhook-d6f8b6cb-xzjxc   1/1     Running             0          19h
+   devop@rms:~> helm history rancher -n cattle-system
+   REVISION	UPDATED                 	STATUS    	CHART        	APP VERSION	DESCRIPTION     
+   1       	Tue Oct 25 17:05:13 2022	superseded	rancher-2.6.6	v2.6.6     	Install complete
+   2       	Tue Nov  8 15:52:00 2022	superseded	rancher-2.6.9	v2.6.9     	Upgrade complete
+   3       	Wed Nov  9 10:55:25 2022	deployed  	rancher-2.6.6	v2.6.6     	Rollback to 1 
+   
    devop@rms:~> kubectl get po -n cattle-system
-   NAME                             READY   STATUS        RESTARTS   AGE
-   helm-operation-trgz9             0/2     Completed     0          59m
-   rancher-6c8f689f57-4jsmd         0/1     Terminating   0          1s
-   rancher-6c8f689f57-dcvsk         0/1     Terminating   0          1s
-   rancher-6c8f689f57-h7blc         0/1     Terminating   0          1s
-   rancher-webhook-d6f8b6cb-xzjxc   1/1     Running       0          39m
+   NAME                             READY   STATUS    RESTARTS   AGE
+   rancher-7fd65d9cd6-hsbhg         1/1     Running   0          34m
+   rancher-7fd65d9cd6-qz9xb         1/1     Running   0          33m
+   rancher-7fd65d9cd6-zrdm8         1/1     Running   0          34m
+   rancher-webhook-d6f8b6cb-xzjxc   1/1     Running   0          19h
+   devop@rms:~> kubectl describe po rancher-7fd65d9cd6-hsbhg -n cattle-system 
+   
+   Containers:
+     rancher:
+       Container ID:  containerd://13a9d5362e57776b8cfb54f63e872cd81b6ec38623716d7d3b3006f57acc9f89
+       Image:         rancher/rancher:v2.6.6
    ```
 
-   ![image-20221108163320830](assets/image-20221108163320830.png)
+4. 重整Web UI確認版本已為v2.6.6
+   ![image-20221109105523237](assets/image-20221109105523237.png)
 
-5. 還原後Rancher版本不會還原，但resoruce會還原 (cattle-monitoring-system)
-   ![image-20221108170614349](assets/image-20221108170614349.png)
+## 還原Rancher Cluster etcd
 
-6. 還原rancher版本要使用helm來roll back
+```
+順序：
+1. 停止所有node的rke2-server service
+2. 在第一個節點 執行restore指令
+3. 啟動第一個節點的 rke2-server service
+4. 刪除剩下兩個節點的db目錄 /var/lib/rancher/rke2/server/db
+5. 啟動剩下兩個節點的 rke2-server service
+```
 
-7. 3123
+1. 先確認先前做snapshot的檔案都在
 
-8. 132
+   ```
+   wangken@wangken-MAC rke2-lab % ansible rke2-cluster -m shell -a 'ls -l /var/lib/rancher/rke2/server/db/snapshots'
+   BECOME password: 
+   
+   192.168.33.43 | CHANGED | rc=0 >>
+   總用量 270504
+   -rw------- 1 root root 41029664 11月  7 12:00 etcd-snapshot-rke2-3-1667793600
+   -rw------- 1 root root 41029664 11月  8 00:00 etcd-snapshot-rke2-3-1667836800
+   -rw------- 1 root root 41029664 11月  8 12:00 etcd-snapshot-rke2-3-1667880000
+   -rw------- 1 root root 41029664 11月  9 00:00 etcd-snapshot-rke2-3-1667923200
+   -rw------- 1 root root 56426528 11月  9 12:00 etcd-snapshot-rke2-3-1667966400
+   -rw------- 1 root root 56426528 11月  9 11:58 pre-upgrade-snapshot-v2.6.6-rke2-3-1667966290
+   
+   192.168.33.42 | CHANGED | rc=0 >>
+   總用量 270512
+   -rw------- 1 root root 40488992 11月  7 12:00 etcd-snapshot-rke2-2-1667793600
+   -rw------- 1 root root 40488992 11月  8 00:00 etcd-snapshot-rke2-2-1667836800
+   -rw------- 1 root root 40488992 11月  8 12:00 etcd-snapshot-rke2-2-1667880000
+   -rw------- 1 root root 40488992 11月  9 00:00 etcd-snapshot-rke2-2-1667923200
+   -rw------- 1 root root 57511968 11月  9 12:00 etcd-snapshot-rke2-2-1667966400
+   -rw------- 1 root root 57511968 11月  9 11:58 pre-upgrade-snapshot-v2.6.6-rke2-2-1667966291
+   
+   192.168.33.41 | CHANGED | rc=0 >>
+   總用量 269656
+   -rw------- 1 root root 41537568 11月  7 12:00 etcd-snapshot-rke2-1-1667793600
+   -rw------- 1 root root 41537568 11月  8 00:00 etcd-snapshot-rke2-1-1667836800
+   -rw------- 1 root root 41537568 11月  8 12:00 etcd-snapshot-rke2-1-1667880000
+   -rw------- 1 root root 41537568 11月  9 00:00 etcd-snapshot-rke2-1-1667923200
+   -rw------- 1 root root 54976544 11月  9 12:00 etcd-snapshot-rke2-1-1667966400
+   -rw------- 1 root root 54976544 11月  9 11:58 pre-upgrade-snapshot-v2.6.6-rke2-1-1667966289
+   ```
+
+2. 確認目錄etcd
+
+   ```
+   wangken@wangken-MAC rke2-lab % ansible rke2-cluster -m shell -a 'ls -l /var/lib/rancher/rke2/server/db/'         
+   BECOME password: 
+   
+   192.168.33.41 | CHANGED | rc=0 >>
+   總用量 0
+   drwx------ 1 root root  32 11月  9 12:20 etcd
+   drwx------ 1 root root 400 11月  9 12:00 snapshots
+   
+   192.168.33.43 | CHANGED | rc=0 >>
+   總用量 0
+   drwx------ 1 root root  32 11月  9 12:18 etcd
+   drwx------ 1 root root 400 11月  9 12:00 snapshots
+   
+   192.168.33.42 | CHANGED | rc=0 >>
+   總用量 0
+   drwx------ 1 root root  32 11月  9 12:17 etcd
+   drwx------ 1 root root 400 11月  9 12:00 snapshots
+   ```
+
+3. 停用rke2-server service
+
+   ```
+   wangken@wangken-MAC rke2-lab % ansible rke2-cluster -m shell -a 'systemctl stop rke2-server'            
+   BECOME password: 
+   
+   192.168.33.41 | CHANGED | rc=0 >>
+   
+   192.168.33.43 | CHANGED | rc=0 >>
+   
+   192.168.33.42 | CHANGED | rc=0 >>
+   ```
+
+4. 在rke2-1執行 restore指令並啟動rke2-server service
+
+   ```
+   rke2 server \
+     --cluster-reset \
+     --cluster-reset-restore-path=<PATH-TO-SNAPSHOT>
+   rke2-1:/var/lib/rancher/rke2/server/db/snapshots # pwd
+   /var/lib/rancher/rke2/server/db/snapshots
+   
+   rke2-1:/var/lib/rancher/rke2/server/db/snapshots # ll
+   total 269656
+   -rw------- 1 root root 41537568 Nov  7 12:00 etcd-snapshot-rke2-1-1667793600
+   -rw------- 1 root root 41537568 Nov  8 00:00 etcd-snapshot-rke2-1-1667836800
+   -rw------- 1 root root 41537568 Nov  8 12:00 etcd-snapshot-rke2-1-1667880000
+   -rw------- 1 root root 41537568 Nov  9 00:00 etcd-snapshot-rke2-1-1667923200
+   -rw------- 1 root root 54976544 Nov  9 12:00 etcd-snapshot-rke2-1-1667966400
+   -rw------- 1 root root 54976544 Nov  9 11:58 pre-upgrade-snapshot-v2.6.6-rke2-1-1667966289
+   
+   rke2-1:/var/lib/rancher/rke2/server/db/snapshots # rke2 server --cluster-reset --cluster-reset-restore-path=/var/lib/rancher/rke2/server/db/snapshots/pre-upgrade-snapshot-v2.6.6-rke2-1-1667966289
+   
+   INFO[0032] Defragmenting etcd database                  
+   INFO[0032] Reconciling bootstrap data between datastore and disk 
+   INFO[0032] Cluster reset: backing up certificates directory to /var/lib/rancher/rke2/server/tls-1667973877 
+   INFO[0033] Defragmenting etcd database                  
+   INFO[0033] etcd data store connection OK                
+   INFO[0033] Waiting for API server to become available   
+   INFO[0033] ETCD server is now running                   
+   INFO[0033] rke2 is up and running                       
+   WARN[0033] bootstrap key already exists                 
+   INFO[0033] Reconciling etcd snapshot data in rke2-etcd-snapshots ConfigMap 
+   INFO[0035] Waiting to retrieve kube-proxy configuration; server is not ready: https://127.0.0.1:6444/v1-rke2/readyz: 500 Internal Server Error 
+   INFO[0037] Managed etcd cluster membership has been reset, restart without --cluster-reset flag now. Backup and delete ${datadir}/server/db on each peer etcd server and rejoin the nodes 
+   
+   rke2-1:/var/lib/rancher/rke2/server/db # ll
+   total 0
+   drwx------ 1 root root  32 Nov  9 14:05 etcd
+   drwx------ 1 root root  32 Nov  9 12:20 etcd-old-1667973863
+   drwx------ 1 root root 426 Nov  9 14:04 snapshots
+   
+   rke2-1:/var/lib/rancher/rke2/server/db/snapshots # systemctl start rke2-server
+   ```
+
+5. 刪除剩下兩個節點的 /var/lib/rancher/rke2/server/db
+
+   ```
+   devop@rke2-2:~> sudo cp -r /var/lib/rancher/rke2/server/db /var/lib/rancher/rke2/db_old
+   devop@rke2-2:~> sudo rm -rf /var/lib/rancher/rke2/server/db
+   
+   devop@rke2-3:~> sudo cp -r /var/lib/rancher/rke2/server/db /var/lib/rancher/rke2/db_old
+   [sudo] root 的密碼：
+   devop@rke2-3:~> sudo rm -rf /var/lib/rancher/rke2/server/db
+   devop@rke2-3:~> sudo systemctl start rke2-server
+   ```
+
+6. 切換到rms確認node狀態
+
+   ```
+   devop@rms:~> kubectl get nodes
+   NAME     STATUS   ROLES                       AGE   VERSION
+   rke2-1   Ready    control-plane,etcd,master   14d   v1.24.4+rke2r1
+   rke2-2   Ready    control-plane,etcd,master   14d   v1.24.4+rke2r1
+   rke2-3   Ready    control-plane,etcd,master   14d   v1.24.4+rke2r1
+   ```
+
+7. Web UI 版本回到v2.6.6
+   ![image-20221109141718197](assets/image-20221109141718197.png)
+
+8. /var/lib/rancher/rke2/server/db/ 檔案路徑
+
+   ```
+   wangken@wangken-MAC rke2-lab % ansible rke2-cluster -m shell -a 'ls -l /var/lib/rancher/rke2/server/db/'
+   BECOME password: 
+   192.168.33.42 | CHANGED | rc=0 >>
+   總用量 0
+   drwx------ 1 root root 32 11月  9 14:16 etcd
+   drwx------ 1 root root  0 11月  9 14:17 snapshots
+   
+   192.168.33.43 | CHANGED | rc=0 >>
+   總用量 0
+   drwx------ 1 root root 32 11月  9 14:15 etcd
+   drwx------ 1 root root  0 11月  9 14:15 snapshots
+   
+   192.168.33.41 | CHANGED | rc=0 >>
+   總用量 0
+   drwx------ 1 root root  32 11月  9 14:05 etcd
+   drwx------ 1 root root  32 11月  9 12:20 etcd-old-1667973863
+   drwx------ 1 root root 426 11月  9 14:04 snapshots
+   ```
+
+9. 確認pod status  卡在Terminating
+
+   ```
+   devop@rms:~> kubectl get po -o wide -n cattle-system
+   NAME                             READY   STATUS        RESTARTS   AGE     IP            NODE     NOMINATED NODE   READINESS GATES
+   rancher-7fd65d9cd6-fjvxr         1/1     Running       0          16m     10.42.0.127   rke2-1   <none>           <none>
+   rancher-7fd65d9cd6-hsbhg         0/1     Terminating   0          3h33m   <none>        rke2-3   <none>           <none>
+   rancher-7fd65d9cd6-qz9xb         1/1     Terminating   0          3h33m   10.42.1.58    rke2-2   <none>           <none>
+   rancher-7fd65d9cd6-zk2f9         1/1     Running       0          16m     10.42.0.123   rke2-1   <none>           <none>
+   rancher-7fd65d9cd6-zrdm8         1/1     Running       0          3h33m   10.42.0.117   rke2-1   <none>           <none>
+   rancher-webhook-d6f8b6cb-j2whv   1/1     Running       0          16m     10.42.0.126   rke2-1   <none>           <none>
+   
+   ```
+
+10. 強制刪除pod
+
+    ```
+    devop@rms:~> kubectl delete pod --grace-period=0 --force -n cattle-system rancher-7fd65d9cd6-qz9xb
+    warning: Immediate deletion does not wait for confirmation that the running resource has been terminated. The resource may continue to run on the cluster indefinitely.
+    pod "rancher-7fd65d9cd6-qz9xb" force deleted
+    devop@rms:~> kubectl delete pod --grace-period=0 --force -n cattle-system rancher-7fd65d9cd6-hsbhg
+    warning: Immediate deletion does not wait for confirmation that the running resource has been terminated. The resource may continue to run on the cluster indefinitely.
+    pod "rancher-7fd65d9cd6-hsbhg" force deleted
+    
+    devop@rms:~> kubectl get po -o wide -n cattle-system
+    NAME                             READY   STATUS              RESTARTS   AGE   IP            NODE     NOMINATED NODE   READINESS GATES
+    rancher-7fd65d9cd6-5rglz         0/1     ContainerCreating   0          12m   <none>        rke2-3   <none>           <none>
+    rancher-7fd65d9cd6-fjvxr         1/1     Running             0          29m   10.42.0.127   rke2-1   <none>           <none>
+    rancher-7fd65d9cd6-zk2f9         1/1     Running             0          30m   10.42.0.123   rke2-1   <none>           <none>
+    rancher-webhook-d6f8b6cb-j2whv   1/1     Running             0          29m   10.42.0.126   rke2-1   <none>           <none>
+    ```
+
+11. 123
+
+12. 123
+
+13. 123
+
+## 備份Downstream Cluster
+
+## 升級Downstream Cluster
+
+## 還原Downstream Cluster
+
+
 
 
 
